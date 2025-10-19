@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Lab Terraform ECS</title>
+    <title>Lab Terraform ECS - v2</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -24,33 +24,37 @@
             border-radius: 5px;
             margin: 10px 0;
         }
+        .badge {
+            display: inline-block;
+            background: #10b981;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            margin: 5px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Lab Terraform + ECS</h1>
+        <h1>🚀 Lab Terraform + ECS - Version 2.0</h1>
+        <div class="badge">✅ CI/CD Activo</div>
+        <div class="badge">🔄 Auto-Deploy</div>
         <div class="info">
-            <strong>Environment:</strong> <span id="env">Loading...</span><br>
-            <strong>Version:</strong> <span id="version">1.0.0</span><br>
+            <strong>Environment:</strong> <span id="env">DEV</span><br>
+            <strong>Version:</strong> 2.0.0<br>
+            <strong>Deployed via:</strong> GitHub Actions<br>
             <strong>Container ID:</strong> <span id="container">N/A</span>
         </div>
-        <p>Esta aplicación está desplegada usando:</p>
+        <p>🎉 Esta aplicación se desplegó automáticamente usando:</p>
         <ul>
-            <li>Docker</li>
-            <li>AWS ECS (Fargate)</li>
-            <li>Terraform con Workspaces</li>
-            <li>GitHub Actions CI/CD</li>
+            <li>✅ Docker</li>
+            <li>✅ AWS ECS (Fargate)</li>
+            <li>✅ Terraform con Workspaces</li>
+            <li>✅ <strong>GitHub Actions CI/CD</strong></li>
         </ul>
+        <p><em>Cada push a main despliega automáticamente a ECS</em></p>
     </div>
     <script>
-        // Detectar entorno desde hostname o variable
-        const hostname = window.location.hostname;
-        document.getElementById('env').textContent = 
-            hostname.includes('dev') ? 'DEV' :
-            hostname.includes('staging') ? 'STAGING' : 
-            hostname.includes('prod') ? 'PROD' : 'LOCAL';
-        
-        // Simular container ID
         document.getElementById('container').textContent = 
             Math.random().toString(36).substr(2, 9);
     </script>
