@@ -5,6 +5,10 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 env:
@@ -13,24 +17,45 @@ env:
   ECS_CLUSTER: lab-terraform-ecs-dev-cluster
   ECS_SERVICE: lab-terraform-ecs-dev-service
   CONTAINER_NAME: lab-terraform-ecs-dev-app
-  TASK_DEFINITION_FAMILY: lab-terraform-ecs-dev-app  # ← Añadir esta variable
+  TASK_DEFINITION_FAMILY: lab-terraform-ecs-dev-app
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
 
 jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
-    environment: development
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
+    # ⭐ NUEVO: Sanitizar nombre de sesión
+    - name: Prepare session name
+      id: session
+      run: |
+        # Reemplazar caracteres no permitidos por guiones
+        CLEAN_REF=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9_+=,.@-]/-/g')
+        SESSION_NAME="GH-${{ github.run_id }}-${CLEAN_REF}"
+        echo "name=$SESSION_NAME" >> $GITHUB_OUTPUT
+        echo "Session name: $SESSION_NAME"
+
+    - name: Configure AWS credentials via OIDC
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: arn:aws:iam::942632789708:role/GitHubActionsECSOIDCRole
+        role-session-name: ${{ steps.session.outputs.name }}
         aws-region: ${{ env.AWS_REGION }}
+
+    - name: Verify AWS identity
+      run: |
+        echo "### AWS Identity 🔐" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        aws sts get-caller-identity >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
     - name: Login to Amazon ECR
       id: login-ecr
@@ -41,25 +66,44 @@ jobs:
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
+        BRANCH_TAG: ${{ github.ref_name }}
       run: |
+        # Sanitizar branch tag (sin / para Docker)
+        SAFE_BRANCH_TAG=$(echo "$BRANCH_TAG" | sed 's/[^a-zA-Z0-9._-]/-/g')
+        
         # Build Docker image
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SAFE_BRANCH_TAG ./app
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest ./app
         
-        # Push both tags
+        # Push all tags
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SAFE_BRANCH_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
-        # Output image for next step
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+    - name: Should deploy to ECS?
+      id: should-deploy
+      run: |
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          echo "deploy=true" >> $GITHUB_OUTPUT
+          echo "### 🚀 Deploying to ECS" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "deploy=false" >> $GITHUB_OUTPUT
+          echo "### 📦 Build only (no ECS deployment)" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment will happen when merged to main" >> $GITHUB_STEP_SUMMARY
+        fi
+
     - name: Download task definition
+      if: steps.should-deploy.outputs.deploy == 'true'
       run: |
         aws ecs describe-task-definition \
           --task-definition ${{ env.TASK_DEFINITION_FAMILY }} \
           --query taskDefinition > task-definition.json
 
     - name: Fill in the new image ID in the Amazon ECS task definition
+      if: steps.should-deploy.outputs.deploy == 'true'
       id: task-def
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
@@ -68,6 +112,7 @@ jobs:
         image: ${{ steps.build-image.outputs.image }}
 
     - name: Deploy Amazon ECS task definition
+      if: steps.should-deploy.outputs.deploy == 'true'
       uses: aws-actions/amazon-ecs-deploy-task-definition@v1
       with:
         task-definition: ${{ steps.task-def.outputs.task-definition }}
@@ -77,8 +122,16 @@ jobs:
 
     - name: Deployment Summary
       run: |
-        echo "### Deployment Successful! 🚀" >> $GITHUB_STEP_SUMMARY
+        echo "### Deployment Summary 🎯" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Image**: \`${{ steps.build-image.outputs.image }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Cluster**: \`${{ env.ECS_CLUSTER }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Service**: \`${{ env.ECS_SERVICE }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Auth Method**: OIDC ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- **Session**: \`${{ steps.session.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
+        if [[ "${{ steps.should-deploy.outputs.deploy }}" == "true" ]]; then
+          echo "- **ECS Cluster**: \`${{ env.ECS_CLUSTER }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **ECS Service**: \`${{ env.ECS_SERVICE }}\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Status**: Build only (no ECS deployment)" >> $GITHUB_STEP_SUMMARY
+        fi
