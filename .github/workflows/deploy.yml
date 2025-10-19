@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - dev
-      - 'feature/**'  # ← IMPORTANTE: Permitir feature branches
+      - 'feature/**'
   pull_request:
     branches:
       - main
@@ -19,29 +19,35 @@ env:
   CONTAINER_NAME: lab-terraform-ecs-dev-app
   TASK_DEFINITION_FAMILY: lab-terraform-ecs-dev-app
 
-# ⭐ NUEVO: Permisos para OIDC
 permissions:
-  id-token: write      # Necesario para JWT
-  contents: read       # Necesario para checkout
-  pull-requests: write # Para comentar en PRs
+  id-token: write
+  contents: read
+  pull-requests: write
 
 jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
-    # ⭐ OPCIONAL: Solo desplegar desde main, en feature solo build+push
-    # environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    # ⭐ CAMBIO PRINCIPAL: OIDC en lugar de access keys
+    # ⭐ NUEVO: Sanitizar nombre de sesión
+    - name: Prepare session name
+      id: session
+      run: |
+        # Reemplazar caracteres no permitidos por guiones
+        CLEAN_REF=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9_+=,.@-]/-/g')
+        SESSION_NAME="GH-${{ github.run_id }}-${CLEAN_REF}"
+        echo "name=$SESSION_NAME" >> $GITHUB_OUTPUT
+        echo "Session name: $SESSION_NAME"
+
     - name: Configure AWS credentials via OIDC
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: arn:aws:iam::942632789708:role/GitHubActionsECSOIDCRole
-        role-session-name: GitHubActions-${{ github.run_id }}-${{ github.ref_name }}
+        role-session-name: ${{ steps.session.outputs.name }}
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Verify AWS identity
@@ -62,19 +68,21 @@ jobs:
         IMAGE_TAG: ${{ github.sha }}
         BRANCH_TAG: ${{ github.ref_name }}
       run: |
+        # Sanitizar branch tag (sin / para Docker)
+        SAFE_BRANCH_TAG=$(echo "$BRANCH_TAG" | sed 's/[^a-zA-Z0-9._-]/-/g')
+        
         # Build Docker image
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$BRANCH_TAG ./app
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SAFE_BRANCH_TAG ./app
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest ./app
         
         # Push all tags
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$BRANCH_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SAFE_BRANCH_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-    # ⭐ NUEVO: Solo desplegar a ECS desde main
     - name: Should deploy to ECS?
       id: should-deploy
       run: |
@@ -117,8 +125,10 @@ jobs:
         echo "### Deployment Summary 🎯" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "- **Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Image**: \`${{ steps.build-image.outputs.image }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Auth Method**: OIDC ✅" >> $GITHUB_STEP_SUMMARY
+        echo "- **Session**: \`${{ steps.session.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
         if [[ "${{ steps.should-deploy.outputs.deploy }}" == "true" ]]; then
           echo "- **ECS Cluster**: \`${{ env.ECS_CLUSTER }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **ECS Service**: \`${{ env.ECS_SERVICE }}\`" >> $GITHUB_STEP_SUMMARY
