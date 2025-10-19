@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lab Terraform ECS</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+        h1 { margin: 0 0 20px 0; }
+        .info { 
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Lab Terraform + ECS</h1>
+        <div class="info">
+            <strong>Environment:</strong> <span id="env">Loading...</span><br>
+            <strong>Version:</strong> <span id="version">1.0.0</span><br>
+            <strong>Container ID:</strong> <span id="container">N/A</span>
+        </div>
+        <p>Esta aplicación está desplegada usando:</p>
+        <ul>
+            <li>Docker</li>
+            <li>AWS ECS (Fargate)</li>
+            <li>Terraform con Workspaces</li>
+            <li>GitHub Actions CI/CD</li>
+        </ul>
+    </div>
+    <script>
+        // Detectar entorno desde hostname o variable
+        const hostname = window.location.hostname;
+        document.getElementById('env').textContent = 
+            hostname.includes('dev') ? 'DEV' :
+            hostname.includes('staging') ? 'STAGING' : 
+            hostname.includes('prod') ? 'PROD' : 'LOCAL';
+        
+        // Simular container ID
+        document.getElementById('container').textContent = 
+            Math.random().toString(36).substr(2, 9);
+    </script>
+</body>
+</html>
